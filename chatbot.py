@@ -7,6 +7,22 @@ from functions import *
 import sys
 
 from typing_extensions import override
+    
+ASSISTANTS = {
+    "Aristotle": "asst_dKkXGVQWYK7na5sa02Cwipmn",
+    "Da Vinci": "asst_mJgHiKoFSUvQExMEiU42sf5h",
+    "Newton": "asst_dZqSEMrMtnE1qbDsP9mf3jtR",
+    "Cicero": "asst_jq1pEakwfITkZeSTQyzEF9wY",
+    "Curie": "asst_wxyuiy9LMe6LuFSsUtdYfdeO"
+}
+
+# Socrates
+MODERATOR = "asst_MzxFALjIRhsxF1Fm3Iz4yxLz"
+            
+next_speaker = None
+
+def get_next_speaker(assistant_name):
+    return assistant_name
 
 class Action(object):
     def __init__(self, action_fn, action_args):
@@ -69,6 +85,13 @@ class AIClient(object):
         )
         return message
     
+    def modify_message(self, thread_id, message_id, metadata):
+        self.client.beta.threads.messages.update(
+            thread_id=thread_id,
+            message_id=message_id,
+            metadata=metadata
+        )
+    
     def list_messages(self, thread_id):
         messages = self.client.beta.threads.messages.list(
             thread_id=thread_id,
@@ -130,10 +153,11 @@ class AIClient(object):
     
 
 class OpenAIRunManager(object):
-    def __init__(self, openai_client, assistant_id, thread_id):
+    def __init__(self, openai_client, assistant_id, thread_id, is_moderator=False):
         self.openai_client = openai_client
         self.assistant_id = assistant_id
         self.thread_id = thread_id
+        self.is_moderator = is_moderator
         self.actions_taken = []
     
     def create_run(self):
@@ -170,6 +194,7 @@ class OpenAIRunManager(object):
     def handle_action(self):
         # I copied some code from another function; it made it easier to assign self.ai_run to just a local ai_run for now
         ai_run = self.ai_run
+
         num_fn_calls = self.openai_client.get_num_tool_calls(ai_run)
         if num_fn_calls > 1:
             print("[!] Multiple tool calls detected")
@@ -202,6 +227,9 @@ class OpenAIRunManager(object):
                     "tool_call_id": tool_call_id,
                     "output": json.dumps(results)
                 })
+
+                if self.is_moderator:
+                    self.next_speaker = args.get("name")
             else:
                 print("[-] Canceling the run")
                 ai_run = client.cancel_run(
@@ -213,9 +241,9 @@ class OpenAIRunManager(object):
                 break
             
         if not run_cancelled:
-            ai_run = client.submit_tool_outputs(
-                thread_id=thread.id,
-                run_id=ai_run.id,
+            ai_run = self.openai_client.submit_tool_outputs(
+                thread_id=self.thread_id,
+                run_id=self.ai_run.id,
                 tool_outputs=tools_outputs
             )
 
@@ -240,18 +268,9 @@ class OpenAIRunManager(object):
 
     def get_actions(self):
         return self.actions_taken
-            
-next_speaker = None
-
-def update_next_speaker(assistant_id):
-    next_speaker = assistant_id
 
 if __name__ == "__main__":
     client = AIClient()
-
-    assistant = client.retrieve_assistant("asst_jS9Ena6cvET0JVGNhKo3SdMJ")
-    # assistant2 = client.retrieve_assistant("")
-    # moderator = client.retrieve_assistant("")
 
     thread = client.create_thread()
     print("Thread ID is: {}".format(thread.id))
@@ -264,30 +283,56 @@ if __name__ == "__main__":
         user_input = input("user > ")
 
     while user_input not in ["exit", "quit", "q"]:
-        message = client.create_message(
-            role="user",
-            thread_id=thread.id,
-            content=user_input.strip()
-        )
+        if user_input != "pass":
+            message = client.create_message(
+                role="user",
+                thread_id=thread.id,
+                content=user_input.strip()
+            )
 
+        # Have the moderator decide who speaks next
         run_manager = OpenAIRunManager(
             openai_client=client,
-            assistant_id=assistant.id,
-            thread_id=thread.id
+            assistant_id=MODERATOR,
+            thread_id=thread.id,
+            is_moderator=True
         )
         ai_run = run_manager.create_run()
         run_manager.poll_run()
 
         print("[+] Done with the Run")
 
+        # Pass the thread to the next speaker
+        next_speaker = run_manager.next_speaker
+        next_speaker_id = ASSISTANTS.get(next_speaker)
+
+        run_manager = OpenAIRunManager(
+            openai_client=client,
+            assistant_id=next_speaker_id,
+            thread_id=thread.id
+        )
+        ai_run = run_manager.create_run()
+        run_manager.poll_run()
+
+        # Get message output from this fun
         messages = client.list_messages_from_run(
             thread_id=thread.id,
             run_id=ai_run.id
         )
+
+        for message in json.loads(messages.json()).get('data'):
+            client.modify_message(
+                thread_id=thread.id,
+                message_id=message.get('id'),
+                metadata={
+                    "name": next_speaker
+                }
+            )
+
         message_content = ""
         for message in messages:
             message_content += messages.data[0].content[0].text.value
-        print("\nassistant> {}".format(message_content))
+        print("\{}> {}".format(next_speaker, message_content))
 
         print("ACTIONS TAKEN:")
         for action in run_manager.get_actions():
