@@ -241,58 +241,57 @@ class OpenAIRunManager(object):
     def get_actions(self):
         return self.actions_taken
             
-
-
 next_speaker = None
 
 def update_next_speaker(assistant_id):
     next_speaker = assistant_id
 
-client = AIClient()
+if __name__ == "__main__":
+    client = AIClient()
 
-assistant = client.retrieve_assistant("asst_jS9Ena6cvET0JVGNhKo3SdMJ")
-# assistant2 = client.retrieve_assistant("")
-# moderator = client.retrieve_assistant("")
+    assistant = client.retrieve_assistant("asst_jS9Ena6cvET0JVGNhKo3SdMJ")
+    # assistant2 = client.retrieve_assistant("")
+    # moderator = client.retrieve_assistant("")
 
-thread = client.create_thread()
-print("Thread ID is: {}".format(thread.id))
+    thread = client.create_thread()
+    print("Thread ID is: {}".format(thread.id))
 
-REQUEST_PERMISSION = True
+    REQUEST_PERMISSION = True
 
-if len(sys.argv) > 1:
-    user_input = sys.argv[1]
-else:
-    user_input = input("user > ")
+    if len(sys.argv) > 1:
+        user_input = sys.argv[1]
+    else:
+        user_input = input("user > ")
 
-while user_input not in ["exit", "quit", "q"]:
-    message = client.create_message(
-        role="user",
-        thread_id=thread.id,
-        content=user_input.strip()
-    )
+    while user_input not in ["exit", "quit", "q"]:
+        message = client.create_message(
+            role="user",
+            thread_id=thread.id,
+            content=user_input.strip()
+        )
 
-    run_manager = OpenAIRunManager(
-        openai_client=client,
-        assistant_id=assistant.id,
-        thread_id=thread.id
-    )
-    ai_run = run_manager.create_run()
-    run_manager.poll_run()
+        run_manager = OpenAIRunManager(
+            openai_client=client,
+            assistant_id=assistant.id,
+            thread_id=thread.id
+        )
+        ai_run = run_manager.create_run()
+        run_manager.poll_run()
 
-    print("[+] Done with the Run")
+        print("[+] Done with the Run")
 
-    messages = client.list_messages_from_run(
-        thread_id=thread.id,
-        run_id=ai_run.id
-    )
-    message_content = ""
-    for message in messages:
-        message_content += messages.data[0].content[0].text.value
-    print("\nassistant> {}".format(message_content))
+        messages = client.list_messages_from_run(
+            thread_id=thread.id,
+            run_id=ai_run.id
+        )
+        message_content = ""
+        for message in messages:
+            message_content += messages.data[0].content[0].text.value
+        print("\nassistant> {}".format(message_content))
 
-    print("ACTIONS TAKEN:")
-    for action in run_manager.get_actions():
-        s = action.print_actions()
-        print(s)
-    
-    user_input = input("\n\nuser > ")
+        print("ACTIONS TAKEN:")
+        for action in run_manager.get_actions():
+            s = action.print_actions()
+            print(s)
+        
+        user_input = input("\n\nuser > ")
