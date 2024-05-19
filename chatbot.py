@@ -134,6 +134,7 @@ class OpenAIRunManager(object):
         self.openai_client = openai_client
         self.assistant_id = assistant_id
         self.thread_id = thread_id
+        self.actions_taken = []
     
     def create_run(self):
         self.ai_run = self.openai_client.create_run(
@@ -167,6 +168,7 @@ class OpenAIRunManager(object):
         return self.ai_run.status not in ["cancelled", "completed", "expired", "failed"]
     
     def handle_action(self):
+        # I copied some code from another function; it made it easier to assign self.ai_run to just a local ai_run for now
         ai_run = self.ai_run
         num_fn_calls = self.openai_client.get_num_tool_calls(ai_run)
         if num_fn_calls > 1:
@@ -182,7 +184,7 @@ class OpenAIRunManager(object):
             )
             fn_call = "{}({})".format(fn, args)
             new_action = Action(fn, args)
-            actions_taken.append(new_action)
+            self.actions_taken.append(new_action)
 
             print("[-] Required action: {}".format(fn_call))
             if REQUEST_PERMISSION:
@@ -235,6 +237,9 @@ class OpenAIRunManager(object):
             time.sleep(1)
             self.ai_run = self._get_run()
             continue
+
+    def get_actions(self):
+        return self.actions_taken
             
 
 
@@ -260,8 +265,6 @@ else:
     user_input = input("user > ")
 
 while user_input not in ["exit", "quit", "q"]:
-    actions_taken = []
-
     message = client.create_message(
         role="user",
         thread_id=thread.id,
@@ -288,7 +291,7 @@ while user_input not in ["exit", "quit", "q"]:
     print("\nassistant> {}".format(message_content))
 
     print("ACTIONS TAKEN:")
-    for action in actions_taken:
+    for action in run_manager.get_actions():
         s = action.print_actions()
         print(s)
     
