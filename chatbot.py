@@ -1,5 +1,6 @@
 import openai
 
+import re
 import json
 import time
 from openai import OpenAI
@@ -11,14 +12,12 @@ from typing_extensions import override
     
 ASSISTANTS = {
     "Aristotle": "asst_dKkXGVQWYK7na5sa02Cwipmn",
-    "Da Vinci": "asst_mJgHiKoFSUvQExMEiU42sf5h",
+    "DaVinci": "asst_mJgHiKoFSUvQExMEiU42sf5h",
     "Newton": "asst_dZqSEMrMtnE1qbDsP9mf3jtR",
     "Cicero": "asst_jq1pEakwfITkZeSTQyzEF9wY",
     "Curie": "asst_wxyuiy9LMe6LuFSsUtdYfdeO"
 }
             
-next_speaker = "Aristotle"
-
 user_wants_to_speak = False
 
 def signal_handler(sig, frame):
@@ -26,10 +25,6 @@ def signal_handler(sig, frame):
     print("[+] User wants to speak; they'll get to speak at the next opportunity")
 
 signal.signal(signal.SIGINT, signal_handler)
-
-def set_next_speaker(name):
-    next_speaker = name.get("name")
-    return "[---] Next speaker has been updated to be {}".format(next_speaker)
 
 class Action(object):
     def __init__(self, action_fn, action_args):
@@ -272,6 +267,24 @@ class OpenAIRunManager(object):
     def get_actions(self):
         return self.actions_taken
 
+def extract_mentions(message):
+    """
+    Extracts all @ mentions of assistants from a message string.
+
+    Args:
+        message (str): The message containing @ mentions.
+
+    Returns:
+        list: A list of extracted mentions.
+    """
+    # Define the pattern for @ mentions (e.g., @Curie, @Aristotle)
+    pattern = r'@(\w+)'
+    
+    # Find all matches in the message
+    mentions = re.findall(pattern, message)
+    
+    return mentions
+
 if __name__ == "__main__":
     client = AIClient()
 
@@ -285,7 +298,10 @@ if __name__ == "__main__":
     else:
         user_input = input("user > ")
 
-    next_speaker_id = ASSISTANTS.get(next_speaker)
+    speaker_queue = ["Aristotle"]
+
+    current_speaker = speaker_queue.pop(0)
+    current_speaker_id = ASSISTANTS.get(current_speaker)
 
     while user_input not in ["exit", "quit", "q"]:
         if user_input != "pass":
@@ -295,12 +311,9 @@ if __name__ == "__main__":
                 content=user_input.strip()
             )
 
-        # Save who the current speaker is for later
-        current_speaker = next_speaker
-
         run_manager = OpenAIRunManager(
             openai_client=client,
-            assistant_id=next_speaker_id,
+            assistant_id=current_speaker_id,
             thread_id=thread.id
         )
         ai_run = run_manager.create_run()
@@ -324,7 +337,10 @@ if __name__ == "__main__":
         message_content = ""
         for message in messages:
             message_content += messages.data[0].content[0].text.value
-        print("\{}> {}".format(current_speaker, message_content))
+        print("[{}]> {}".format(current_speaker, message_content))
+
+        mentions = extract_mentions(message_content)
+        speaker_queue += mentions
 
         print("ACTIONS TAKEN:")
         for action in run_manager.get_actions():
@@ -332,10 +348,9 @@ if __name__ == "__main__":
             print(s)
         
         # Pass the thread to the next speaker
-        if next_speaker == "Gabe":
-            user_wants_to_speak = True
-        else:
-            next_speaker_id = ASSISTANTS.get(next_speaker)
+
+        current_speaker = speaker_queue.pop(0)
+        current_speaker_id = ASSISTANTS.get(current_speaker)
 
         if user_wants_to_speak:
             user_input = input("\n\nuser > ")
