@@ -5,6 +5,7 @@ import time
 from openai import OpenAI
 from functions import *
 import sys
+import signal
 
 from typing_extensions import override
     
@@ -15,14 +16,20 @@ ASSISTANTS = {
     "Cicero": "asst_jq1pEakwfITkZeSTQyzEF9wY",
     "Curie": "asst_wxyuiy9LMe6LuFSsUtdYfdeO"
 }
-
-# Socrates
-MODERATOR = "asst_MzxFALjIRhsxF1Fm3Iz4yxLz"
             
-next_speaker = None
+next_speaker = "Aristotle"
 
-def get_next_speaker(assistant_name):
-    return assistant_name
+user_wants_to_speak = False
+
+def signal_handler(sig, frame):
+    user_wants_to_speak = True
+    print("[+] User wants to speak; they'll get to speak at the next opportunity")
+
+signal.signal(signal.SIGINT, signal_handler)
+
+def set_next_speaker(name):
+    next_speaker = name.get("name")
+    return "[---] Next speaker has been updated to be {}".format(next_speaker)
 
 class Action(object):
     def __init__(self, action_fn, action_args):
@@ -153,11 +160,10 @@ class AIClient(object):
     
 
 class OpenAIRunManager(object):
-    def __init__(self, openai_client, assistant_id, thread_id, is_moderator=False):
+    def __init__(self, openai_client, assistant_id, thread_id):
         self.openai_client = openai_client
         self.assistant_id = assistant_id
         self.thread_id = thread_id
-        self.is_moderator = is_moderator
         self.actions_taken = []
     
     def create_run(self):
@@ -227,9 +233,6 @@ class OpenAIRunManager(object):
                     "tool_call_id": tool_call_id,
                     "output": json.dumps(results)
                 })
-
-                if self.is_moderator:
-                    self.next_speaker = args.get("name")
             else:
                 print("[-] Canceling the run")
                 ai_run = client.cancel_run(
@@ -282,6 +285,8 @@ if __name__ == "__main__":
     else:
         user_input = input("user > ")
 
+    next_speaker_id = ASSISTANTS.get(next_speaker)
+
     while user_input not in ["exit", "quit", "q"]:
         if user_input != "pass":
             message = client.create_message(
@@ -290,21 +295,8 @@ if __name__ == "__main__":
                 content=user_input.strip()
             )
 
-        # Have the moderator decide who speaks next
-        run_manager = OpenAIRunManager(
-            openai_client=client,
-            assistant_id=MODERATOR,
-            thread_id=thread.id,
-            is_moderator=True
-        )
-        ai_run = run_manager.create_run()
-        run_manager.poll_run()
-
-        print("[+] Done with the Run")
-
-        # Pass the thread to the next speaker
-        next_speaker = run_manager.next_speaker
-        next_speaker_id = ASSISTANTS.get(next_speaker)
+        # Save who the current speaker is for later
+        current_speaker = next_speaker
 
         run_manager = OpenAIRunManager(
             openai_client=client,
@@ -325,18 +317,26 @@ if __name__ == "__main__":
                 thread_id=thread.id,
                 message_id=message.get('id'),
                 metadata={
-                    "name": next_speaker
+                    "name": current_speaker
                 }
             )
 
         message_content = ""
         for message in messages:
             message_content += messages.data[0].content[0].text.value
-        print("\{}> {}".format(next_speaker, message_content))
+        print("\{}> {}".format(current_speaker, message_content))
 
         print("ACTIONS TAKEN:")
         for action in run_manager.get_actions():
             s = action.print_actions()
             print(s)
         
-        user_input = input("\n\nuser > ")
+        # Pass the thread to the next speaker
+        if next_speaker == "Gabe":
+            user_wants_to_speak = True
+        else:
+            next_speaker_id = ASSISTANTS.get(next_speaker)
+
+        if user_wants_to_speak:
+            user_input = input("\n\nuser > ")
+            user_wants_to_speak = False
